@@ -5,4 +5,4 @@ ELSE r.statement_end_offset END -
 r.statement_start_offset ) / 2 ) + 1) AS statement_text 
 FROM sys.dm_exec_requests r 
 CROSS APPLY sys.dm_exec_sql_text(sql_handle) st 
-WHERE session_id = 92  
+WHERE session_id = 92  --Replace session_ID
