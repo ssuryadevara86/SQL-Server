@@ -1,0 +1,63 @@
+# ============================================
+# Script: Check-BackupStatus.ps1
+# Description: Checks last FULL and LOG backup status for each database
+# ============================================
+
+# Path to server list file (one server per line)
+$serverListPath = "C:\Scripts\servers.txt"
+
+if (!(Test-Path $serverListPath)) {
+    Write-Host "Server list file not found at $serverListPath" -ForegroundColor Red
+    exit
+}
+
+# Read servers
+$servers = Get-Content -Path $serverListPath | Where-Object { $_.Trim() -ne "" }
+
+# Output array
+$results = @()
+
+foreach ($server in $servers) {
+    Write-Host "`nChecking backup status on $server ..." -ForegroundColor Cyan
+
+    try {
+        $query = @"
+        SELECT
+            DB.name AS DatabaseName,
+            MAX(CASE WHEN BS.type = 'D' THEN BS.backup_finish_date END) AS LastFullBackup,
+            MAX(CASE WHEN BS.type = 'L' THEN BS.backup_finish_date END) AS LastLogBackup,
+            MAX(CASE WHEN BS.type = 'D' THEN BS.is_damaged END) AS FullBackupDamaged,
+            MAX(CASE WHEN BS.type = 'L' THEN BS.is_damaged END) AS LogBackupDamaged
+        FROM sys.databases DB
+        LEFT JOIN msdb.dbo.backupset BS ON DB.name = BS.database_name
+        GROUP BY DB.name
+        ORDER BY DB.name
+"@
+
+        $data = Invoke-Sqlcmd -ServerInstance $server -Database msdb -Query $query -ErrorAction Stop
+
+        foreach ($row in $data) {
+            $statusFull = if ($row.FullBackupDamaged -eq 1 -or !$row.LastFullBackup) { "FAILED/NOT FOUND" } else { "OK" }
+            $statusLog  = if ($row.LogBackupDamaged -eq 1 -or !$row.LastLogBackup) { "FAILED/NOT FOUND" } else { "OK" }
+
+            $results += [PSCustomObject]@{
+                Server           = $server
+                Database         = $row.DatabaseName
+                LastFullBackup   = $row.LastFullBackup
+                FullBackupStatus = $statusFull
+                LastLogBackup    = $row.LastLogBackup
+                LogBackupStatus  = $statusLog
+            }
+        }
+    }
+    catch {
+        Write-Host "Error connecting to $server - $($_.Exception.Message)" -ForegroundColor Red
+    }
+}
+
+# Display results
+$results | Format-Table -AutoSize
+
+# Optional: export to CSV report
+$results | Export-Csv -Path "C:\Scripts\BackupStatusReport.csv" -NoTypeInformation
+Write-Host "`nBackup status report saved to C:\Scripts\BackupStatusReport.csv" -ForegroundColor Green
