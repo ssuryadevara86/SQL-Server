@@ -1,0 +1,43 @@
+# ============================================
+# Script: Check-SQLServices.ps1
+# Description: Checks SQL Server services on servers listed in servers.txt
+# ============================================
+
+# Path to the server list file (one server per line)
+$serverListPath = "C:\Scripts\servers.txt"
+
+# Check if file exists
+if (!(Test-Path $serverListPath)) {
+    Write-Host "Server list file not found at $serverListPath" -ForegroundColor Red
+    exit
+}
+
+# Read all servers from the file
+$servers = Get-Content -Path $serverListPath | Where-Object { $_.Trim() -ne "" }
+
+# SQL-related service name patterns
+$sqlServicePatterns = @("MSSQL", "SQLSERVERAGENT", "SQLBrowser", "SQLWriter", "MSSQLSERVER")
+
+foreach ($server in $servers) {
+    Write-Host "`nChecking SQL services on $server ..." -ForegroundColor Cyan
+
+    try {
+        # Get SQL services on the remote machine
+        $services = Get-Service -ComputerName $server | Where-Object {
+            $sqlServicePatterns | ForEach-Object { $serviceNamePattern = $_; if ($_.Name -match $serviceNamePattern) { return $true } }
+        }
+
+        if (!$services) {
+            Write-Host "No SQL-related services found on $server" -ForegroundColor Yellow
+        }
+        else {
+            foreach ($service in $services) {
+                $statusColor = if ($service.Status -eq 'Running') { 'Green' } else { 'Red' }
+                Write-Host ("{0,-45} : {1}" -f $service.DisplayName, $service.Status) -ForegroundColor $statusColor
+            }
+        }
+    }
+    catch {
+        Write-Host "Failed to connect to $server - $($_.Exception.Message)" -ForegroundColor Red
+    }
+}
